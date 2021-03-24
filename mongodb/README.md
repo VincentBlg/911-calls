@@ -31,9 +31,19 @@ Afin de répondre aux différents problèmes, vous allez avoir besoin de créer 
 
 À vous de jouer ! Écrivez les requêtes MongoDB permettant de résoudre les problèmes posés.
 
-```
-TODO : ajouter les requêtes MongoDB ici
-```
+REQ1
+db.calls.aggregate([{ $group : { _id : "$title1", count : {$sum : 1} } } ] )
+
+REQ2 
+db.calls.aggregate([{ $group : { _id : "$timeStamp", count : {$sum : 1} } }, {$sort : {count : -1}},{$limit : 3} ] )
+
+REQ3
+db.calls.aggregate([{$match : {"title2" : /OVERDOSE/ }},{ $group : { _id : "$twp", count : {$sum : 1} } }, {$sort : {count : -1}},{$limit : 3} ] )
+
+REQ4
+db.calls.createIndex({location : "2dsphere"})
+db.calls.aggregate( [ { $geoNear: { near : { type : "Point", coordinates : [-75.283783, 40.241493]}, distanceField : "dist.calculated", maxDistance: 500, spherical : true }}, {$count : "number of calls around Lansdale"}])
+
 
 Vous allez sûrement avoir besoin de vous inspirer des points suivants de la documentation :
 
