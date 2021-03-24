@@ -1,54 +1,62 @@
-const {
-  MongoClient
-} = require('mongodb');
 const csv = require('csv-parser');
 const fs = require('fs');
-const {
-  mainModule
-} = require('process');
+const { Client } = require('@elastic/elasticsearch');
 
-const MONGO_URL = 'mongodb://localhost:27017/';
-const DB_NAME = '911-calls';
-const COLLECTION_NAME = 'calls';
+async function run() {
+    const client = new Client({ node: 'http://localhost:9200'});
 
-const insertCalls = async function (db, callback) {
-  const collection = db.collection(COLLECTION_NAME);
-  await dropCollectionIfExists(db, collection);
-
-  const calls = [];
-  fs.createReadStream('../911.csv')
-    .pipe(csv())
-    .on('data', data => {
-
-      const call = {
-      }; // TODO créer l'objet call à partir de la ligne
-
-      calls.push(call);
-    })
-    .on('end', () => {
-      collection.insertMany(calls, (err, result) => {
-        callback(result)
-      });
+// Drop index if exists
+await client.indices.delete({
+    index: 'calls',
+    ignore_unavailable: true
     });
-}
 
-MongoClient.connect(MONGO_URL, {
-  useUnifiedTopology: true
-}, (err, client) => {
-  if (err) {
-    console.error(err);
-    throw err;
-  }
-  const db = client.db(DB_NAME);
-  insertCalls(db, result => {
-    console.log(`${result.insertedCount} calls inserted`);
-    client.close();
-  });
+
+// Création de l'indice
+client.indices.create({ index: 'calls', body: {mappings: {properties:{location:{type :"geo_point" }, date : {type : "date"}}}}}, (err, resp) => {
+    if (err) console.log(err.message);
 });
 
-async function dropCollectionIfExists(db, collection) {
-  const matchingCollections = await db.listCollections({name: COLLECTION_NAME}).toArray();
-  if (matchingCollections.length > 0) {
-    await collection.drop();
-  }
+let calls = [];
+fs
+.createReadStream('../911.csv')
+.pipe(csv())
+// Pour chaque ligne on créé un document JSON pour l'acteur correspondant
+.on('data', data => {
+    calls.push({
+        lat: data.lat,
+        lng: data.lng,
+		location : data.lat + ", " + data.lng,
+		date: data.timeStamp.substr(0,10),
+        desc: data.desc,
+        zip: data.zip,
+        title1: data.title.split(":")[0],
+        title2: data.title.split(":")[1],
+        timeStamp: data.timeStamp.substr(5,2) + "/"+ data.timeStamp.substr(0,4),
+        twp: data.twp,
+        addr: data.addr,
+        e: data.e
+        });
+        })
+// A la fin on créé l'ensemble des appels dans ElasticSearch
+    .on('end', () => {
+        client.bulk(createBulkInsertQuery(calls), (err, resp) => {
+            if (err) console.log(err.message);
+            else console.log(`Inserted ${resp.body.items.length} calls`);
+            client.close();
+            });
+            });
+}
+
+run().catch(console.log);
+
+// Fonction utilitaire permettant de formatter les données pour l'insertion "bulk" dans elastic
+function createBulkInsertQuery(calls) {
+    const body = calls.reduce((acc, call) => {
+        const { lat, lng, location, date, desc, zip, title1, title2, timeStamp, twp, addr, e } = call;
+        acc.push({ index: { _index: 'calls', _type: '_doc'}})
+        acc.push({ lat, lng, location, date, desc, zip, title1, title2, timeStamp, twp, addr, e })
+        return acc
+        }, []);
+        return { body };
 }
